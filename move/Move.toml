@@ -1,0 +1,17 @@
+[package]
+name = "aprediction"
+version = "1.0.0"
+authors = []
+
+[addresses]
+switchboard = "0x7d7e436f0b2aafde60774efb26ccc432cf881b677aca7faaf2a01879bd19fb8"
+aprediction = "0x42"
+fee_admin = "0x43"
+default_admin = "0x44"
+
+[dependencies]
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
+AptosStdlib = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-stdlib/", rev = "main" }
+Switchboard = { git = "https://github.com/switchboard-xyz/aptos-sdk.git", subdir = "move/switchboard/mainnet/", rev = "main" }
+
+[dev-dependencies]
