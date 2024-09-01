@@ -16,9 +16,26 @@ module aprediction::game {
     const ORACLE_ADDRESS: address =
         @0xb8f20223af69dcbc33d29e8555e46d031915fc38cb1a4fff5d5167a1e08e8367;
 
-    const ROUND_DURATION: u64 = 100;
-
+    const ROUND_DURATION: u64 = 300;
+    const ROUND_BUFFER: u64 = 30;
     const FEE_BPS: u64 = 5_u64;
+
+    const E_NOT_ADMIN: u64 = 1;
+    const E_GENESIS_NOT_STARTED: u64 = 2;
+    const E_GENESIS_NOT_LOCKED: u64 = 3;
+    const E_GENESIS_ONLY_ONCE: u64 = 4;
+    const E_PREV_ROUND_NOT_ENDED: u64 = 5;
+    const E_START_TOO_EARLY: u64 = 6;
+    const E_ROUND_NOT_STARTED: u64 = 7;
+    const E_LOCK_TOO_EARLY: u64 = 8;
+    const E_LOCK_TOO_LATE: u64 = 9;
+    const E_ROUND_NOT_LOCKED: u64 = 10;
+    const E_END_TOO_EARLY: u64 = 11;
+    const E_END_TOO_LATE: u64 = 12;
+    const E_INVALID_ROUND_ID: u64 = 13;
+    const E_CANNOT_BET_ROUND: u64 = 14;
+    const E_ALREADY_BET_ROUND: u64 = 15;
+    const E_ROUND_NOT_FINALIZED: u64 = 16;
 
     struct Round has store {
         round_id: u64,
@@ -40,8 +57,8 @@ module aprediction::game {
         vault: Coin<AptosCoin>,
     }
 
-    public fun initialize(admin: &signer) {
-        assert!(signer::address_of(admin) == ADMIN, 0);
+    public entry fun initialize(admin: &signer) {
+        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
         let rounds = smart_vector::new<Round>();
 
         move_to(
@@ -76,13 +93,13 @@ module aprediction::game {
     }
 
     fun safe_start_round(round_data: &mut RoundData, round_id: u64) {
-        assert!(round_data.genesis_start, 0);
+        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
 
         let past_round = smart_vector::borrow(&round_data.rounds, round_id - 2);
-        assert!(past_round.end_time != 0, 0);
+        assert!(past_round.end_time != 0, E_PREV_ROUND_NOT_ENDED);
 
         let now = timestamp::now_seconds();
-        assert!(now >= past_round.end_time, 0);
+        assert!(now >= past_round.end_time, E_START_TOO_EARLY);
 
         start_round(round_data, round_id);
 
@@ -92,11 +109,11 @@ module aprediction::game {
         round_data: &mut RoundData, round_id: u64, price: SwitchboardDecimal
     ) {
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.start_time != 0, 0);
+        assert!(round.start_time != 0, E_ROUND_NOT_STARTED);
 
         let now = timestamp::now_seconds();
-        assert!(now >= round.lock_time, 0);
-        assert!(now <= round.lock_time + 60_u64, 0);
+        assert!(now >= round.lock_time, E_LOCK_TOO_EARLY);
+        assert!(now <= round.lock_time + ROUND_BUFFER, E_LOCK_TOO_LATE);
 
         round.end_time = now + ROUND_DURATION;
         round.lock_price = price;
@@ -108,11 +125,11 @@ module aprediction::game {
         round_data: &mut RoundData, round_id: u64, price: SwitchboardDecimal
     ) {
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.lock_time != 0, 1);
+        assert!(round.lock_time != 0, E_ROUND_NOT_LOCKED);
 
         let now = timestamp::now_seconds();
-        assert!(now >= round.end_time, 1);
-        assert!(now <= round.end_time + 60_u64, 0);
+        assert!(now >= round.end_time, E_END_TOO_EARLY);
+        assert!(now <= round.end_time + ROUND_BUFFER, E_END_TOO_LATE);
 
         round.end_price = price;
         round.finalized = true;
@@ -143,12 +160,12 @@ module aprediction::game {
 
     }
 
-    public fun execute_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, 0);
+    public entry fun execute_round(admin: &signer) acquires RoundData {
+        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_data.genesis_start, 0);
-        assert!(round_data.genesis_lock, 0);
+        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
+        assert!(round_data.genesis_lock, E_GENESIS_NOT_LOCKED);
 
         let price = aggregator::latest_value(ORACLE_ADDRESS);
 
@@ -163,11 +180,11 @@ module aprediction::game {
 
     }
 
-    public fun genesis_start_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, 0);
+    public entry fun genesis_start_round(admin: &signer) acquires RoundData {
+        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(!round_data.genesis_start, 0);
+        assert!(!round_data.genesis_start, E_GENESIS_ONLY_ONCE);
 
         let current_round = round_data.current_round + 1;
         start_round(round_data, current_round);
@@ -176,12 +193,12 @@ module aprediction::game {
 
     }
 
-    public fun genesis_lock_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, 0);
+    public entry fun genesis_lock_round(admin: &signer) acquires RoundData {
+        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_data.genesis_start, 0);
-        assert!(!round_data.genesis_lock, 0);
+        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
+        assert!(!round_data.genesis_lock, E_GENESIS_ONLY_ONCE);
 
         let price = aggregator::latest_value(ORACLE_ADDRESS);
 
@@ -194,11 +211,11 @@ module aprediction::game {
 
     }
 
-    public fun bet(
+    public entry fun bet(
         player: &signer, round_id: u64, direction: bool, amount: u64
     ) acquires RoundData {
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_id < round_data.current_round, 0);
+        assert!(round_id < round_data.current_round, E_INVALID_ROUND_ID);
 
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
         let now = timestamp::now_seconds();
@@ -207,13 +224,13 @@ module aprediction::game {
             && round.lock_time != 0
             && now > round.start_time
             && now < round.lock_time,
-            0,
+            E_CANNOT_BET_ROUND,
         );
 
         let player_address = signer::address_of(player);
         let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
         let down_shares = pool_u64_unbound::shares(&round.down_pool, player_address);
-        assert!(up_shares == 0 && down_shares == 0, 0);
+        assert!(up_shares == 0 && down_shares == 0, E_ALREADY_BET_ROUND);
 
         let bet_coin = coin::withdraw<AptosCoin>(player, amount);
         coin::merge(&mut round_data.vault, bet_coin);
@@ -230,10 +247,10 @@ module aprediction::game {
     fun round_payout(
         player: &signer, round_data: &mut RoundData, round_id: u64
     ): u64 {
-        assert!(round_id < round_data.current_round, 0);
+        assert!(round_id < round_data.current_round, E_INVALID_ROUND_ID);
 
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.finalized, 0);
+        assert!(round.finalized, E_ROUND_NOT_FINALIZED);
 
         let player_address = signer::address_of(player);
         let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
@@ -249,7 +266,7 @@ module aprediction::game {
         up_out + down_out
     }
 
-    public fun claim_rounds(player: &signer, round_ids: vector<u64>) acquires RoundData {
+    public entry fun claim_rounds(player: &signer, round_ids: vector<u64>) acquires RoundData {
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
 
