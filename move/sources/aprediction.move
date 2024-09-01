@@ -1,12 +1,14 @@
 module aprediction::game {
+    use std::error;
     use std::signer;
     use std::vector;
 
-    use aptos_framework::coin::{Self, Coin};
     use aptos_framework::aptos_coin::AptosCoin;
-    use aptos_framework::timestamp;
+    use aptos_framework::coin::{Self, Coin};
+    use aptos_std::event;
     use aptos_std::pool_u64_unbound::{Self, Pool};
     use aptos_std::smart_vector::{Self, SmartVector};
+    use aptos_framework::timestamp;
 
     use switchboard::aggregator;
     use switchboard::math::{Self, SwitchboardDecimal};
@@ -20,6 +22,7 @@ module aprediction::game {
     const ROUND_BUFFER: u64 = 30;
     const FEE_BPS: u64 = 5_u64;
 
+    const E_ALREADY_INITIALIZED: u64 = 0;
     const E_NOT_ADMIN: u64 = 1;
     const E_GENESIS_NOT_STARTED: u64 = 2;
     const E_GENESIS_NOT_LOCKED: u64 = 3;
@@ -36,6 +39,42 @@ module aprediction::game {
     const E_CANNOT_BET_ROUND: u64 = 14;
     const E_ALREADY_BET_ROUND: u64 = 15;
     const E_ROUND_NOT_FINALIZED: u64 = 16;
+
+    #[event]
+    struct RoundStartedEvent has drop, store {
+        round_id: u64,
+    }
+
+    #[event]
+    struct RoundLockedEvent has drop, store {
+        round_id: u64,
+        locked_price: SwitchboardDecimal,
+    }
+
+    #[event]
+    struct RoundEndedEvent has drop, store {
+        round_id: u64,
+        end_price: SwitchboardDecimal,
+    }
+
+    #[event]
+    struct RewardCalculatedEvent has drop, store {
+        round_id: u64
+    }
+
+    #[event]
+    struct BetEvent has drop, store {
+        player: address,
+        round_id: u64,
+        amount: u64,
+        direction: bool
+    }
+
+    #[event]
+    struct ClaimEvent has drop, store {
+        player: address,
+        claimed_amount: u64,
+    }
 
     struct Round has store {
         round_id: u64,
@@ -58,7 +97,10 @@ module aprediction::game {
     }
 
     public entry fun initialize(admin: &signer) {
-        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
+        assert!(
+            !exists<RoundData>(@aprediction), error::already_exists(E_ALREADY_INITIALIZED)
+        );
+        assert!(signer::address_of(admin) == ADMIN, error::permission_denied(E_NOT_ADMIN));
         let rounds = smart_vector::new<Round>();
 
         move_to(
@@ -89,17 +131,17 @@ module aprediction::game {
 
         smart_vector::push_back(&mut round_data.rounds, round);
 
-        // emit event
+        event::emit(RoundStartedEvent { round_id });
     }
 
     fun safe_start_round(round_data: &mut RoundData, round_id: u64) {
-        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
+        assert!(round_data.genesis_start, error::invalid_state(E_GENESIS_NOT_STARTED));
 
         let past_round = smart_vector::borrow(&round_data.rounds, round_id - 2);
-        assert!(past_round.end_time != 0, E_PREV_ROUND_NOT_ENDED);
+        assert!(past_round.end_time != 0, error::invalid_state(E_PREV_ROUND_NOT_ENDED));
 
         let now = timestamp::now_seconds();
-        assert!(now >= past_round.end_time, E_START_TOO_EARLY);
+        assert!(now >= past_round.end_time, error::invalid_state(E_START_TOO_EARLY));
 
         start_round(round_data, round_id);
 
@@ -109,32 +151,38 @@ module aprediction::game {
         round_data: &mut RoundData, round_id: u64, price: SwitchboardDecimal
     ) {
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.start_time != 0, E_ROUND_NOT_STARTED);
+        assert!(round.start_time != 0, error::invalid_state(E_ROUND_NOT_STARTED));
 
         let now = timestamp::now_seconds();
-        assert!(now >= round.lock_time, E_LOCK_TOO_EARLY);
-        assert!(now <= round.lock_time + ROUND_BUFFER, E_LOCK_TOO_LATE);
+        assert!(now >= round.lock_time, error::invalid_state(E_LOCK_TOO_EARLY));
+        assert!(
+            now <= round.lock_time + ROUND_BUFFER, error::invalid_state(E_LOCK_TOO_LATE)
+        );
 
         round.end_time = now + ROUND_DURATION;
         round.lock_price = price;
 
-        // emit event
+        event::emit(RoundLockedEvent { round_id, locked_price: price });
+
     }
 
     fun safe_end_round(
         round_data: &mut RoundData, round_id: u64, price: SwitchboardDecimal
     ) {
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.lock_time != 0, E_ROUND_NOT_LOCKED);
+        assert!(round.lock_time != 0, error::invalid_state(E_ROUND_NOT_LOCKED));
 
         let now = timestamp::now_seconds();
-        assert!(now >= round.end_time, E_END_TOO_EARLY);
-        assert!(now <= round.end_time + ROUND_BUFFER, E_END_TOO_LATE);
+        assert!(now >= round.end_time, error::invalid_state(E_END_TOO_EARLY));
+        assert!(
+            now <= round.end_time + ROUND_BUFFER, error::invalid_state(E_END_TOO_LATE)
+        );
 
         round.end_price = price;
         round.finalized = true;
 
-        // emit event
+        event::emit(RoundEndedEvent { round_id, end_price: price });
+
     }
 
     fun calculate_rewards(round_data: &mut RoundData, round_id: u64) {
@@ -158,14 +206,16 @@ module aprediction::game {
             coin::deposit<AptosCoin>(@fee_admin, fee_coin);
         };
 
+        event::emit(RewardCalculatedEvent { round_id });
+
     }
 
     public entry fun execute_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
+        assert!(signer::address_of(admin) == ADMIN, error::permission_denied(E_NOT_ADMIN));
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
-        assert!(round_data.genesis_lock, E_GENESIS_NOT_LOCKED);
+        assert!(round_data.genesis_start, error::invalid_state(E_GENESIS_NOT_STARTED));
+        assert!(round_data.genesis_lock, error::invalid_state(E_GENESIS_NOT_LOCKED));
 
         let price = aggregator::latest_value(ORACLE_ADDRESS);
 
@@ -181,10 +231,10 @@ module aprediction::game {
     }
 
     public entry fun genesis_start_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
+        assert!(signer::address_of(admin) == ADMIN, error::permission_denied(E_NOT_ADMIN));
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(!round_data.genesis_start, E_GENESIS_ONLY_ONCE);
+        assert!(!round_data.genesis_start, error::invalid_state(E_GENESIS_ONLY_ONCE));
 
         let current_round = round_data.current_round + 1;
         start_round(round_data, current_round);
@@ -194,11 +244,11 @@ module aprediction::game {
     }
 
     public entry fun genesis_lock_round(admin: &signer) acquires RoundData {
-        assert!(signer::address_of(admin) == ADMIN, E_NOT_ADMIN);
+        assert!(signer::address_of(admin) == ADMIN, error::permission_denied(E_NOT_ADMIN));
 
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_data.genesis_start, E_GENESIS_NOT_STARTED);
-        assert!(!round_data.genesis_lock, E_GENESIS_ONLY_ONCE);
+        assert!(round_data.genesis_start, error::invalid_state(E_GENESIS_NOT_STARTED));
+        assert!(!round_data.genesis_lock, error::invalid_state(E_GENESIS_ONLY_ONCE));
 
         let price = aggregator::latest_value(ORACLE_ADDRESS);
 
@@ -215,7 +265,9 @@ module aprediction::game {
         player: &signer, round_id: u64, direction: bool, amount: u64
     ) acquires RoundData {
         let round_data = borrow_global_mut<RoundData>(@aprediction);
-        assert!(round_id < round_data.current_round, E_INVALID_ROUND_ID);
+        assert!(
+            round_id < round_data.current_round, error::out_of_range(E_INVALID_ROUND_ID)
+        );
 
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
         let now = timestamp::now_seconds();
@@ -224,13 +276,15 @@ module aprediction::game {
             && round.lock_time != 0
             && now > round.start_time
             && now < round.lock_time,
-            E_CANNOT_BET_ROUND,
+            error::invalid_state(E_CANNOT_BET_ROUND),
         );
 
         let player_address = signer::address_of(player);
         let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
         let down_shares = pool_u64_unbound::shares(&round.down_pool, player_address);
-        assert!(up_shares == 0 && down_shares == 0, E_ALREADY_BET_ROUND);
+        assert!(
+            up_shares == 0 && down_shares == 0, error::invalid_state(E_ALREADY_BET_ROUND)
+        );
 
         let bet_coin = coin::withdraw<AptosCoin>(player, amount);
         coin::merge(&mut round_data.vault, bet_coin);
@@ -239,18 +293,21 @@ module aprediction::game {
             pool_u64_unbound::buy_in(&mut round.up_pool, player_address, amount);
         } else {
             pool_u64_unbound::buy_in(&mut round.down_pool, player_address, amount);
-        }
+        };
 
-        // emit event
+        event::emit(BetEvent { player: player_address, round_id, amount, direction });
+
     }
 
     fun round_payout(
         player: &signer, round_data: &mut RoundData, round_id: u64
     ): u64 {
-        assert!(round_id < round_data.current_round, E_INVALID_ROUND_ID);
+        assert!(
+            round_id < round_data.current_round, error::out_of_range(E_INVALID_ROUND_ID)
+        );
 
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
-        assert!(round.finalized, E_ROUND_NOT_FINALIZED);
+        assert!(round.finalized, error::invalid_state(E_ROUND_NOT_FINALIZED));
 
         let player_address = signer::address_of(player);
         let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
@@ -278,10 +335,11 @@ module aprediction::game {
                 + round_payout(player, round_data, vector::pop_back(&mut round_ids));
         };
 
+        let player_address = signer::address_of(player);
         let claim_coin = coin::extract<AptosCoin>(&mut round_data.vault, amount_claim);
-        coin::deposit(signer::address_of(player), claim_coin);
+        coin::deposit(player_address, claim_coin);
 
-        // emit event
+        event::emit(ClaimEvent { player: player_address, claimed_amount: amount_claim });
 
     }
 }
