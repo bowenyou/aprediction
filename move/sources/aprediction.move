@@ -95,7 +95,7 @@ module aprediction::game {
         rounds: SmartVector<Round>,
         vault: Coin<AptosCoin>,
     }
-
+    
     public entry fun initialize(admin: &signer) {
         assert!(
             !exists<RoundData>(@aprediction), error::already_exists(E_ALREADY_INITIALIZED)
@@ -279,9 +279,9 @@ module aprediction::game {
             error::invalid_state(E_CANNOT_BET_ROUND),
         );
 
-        let player_address = signer::address_of(player);
-        let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
-        let down_shares = pool_u64_unbound::shares(&round.down_pool, player_address);
+        let player_addr = signer::address_of(player);
+        let up_shares = pool_u64_unbound::shares(&round.up_pool, player_addr);
+        let down_shares = pool_u64_unbound::shares(&round.down_pool, player_addr);
         assert!(
             up_shares == 0 && down_shares == 0, error::invalid_state(E_ALREADY_BET_ROUND)
         );
@@ -290,17 +290,17 @@ module aprediction::game {
         coin::merge(&mut round_data.vault, bet_coin);
 
         if (direction) {
-            pool_u64_unbound::buy_in(&mut round.up_pool, player_address, amount);
+            pool_u64_unbound::buy_in(&mut round.up_pool, player_addr, amount);
         } else {
-            pool_u64_unbound::buy_in(&mut round.down_pool, player_address, amount);
+            pool_u64_unbound::buy_in(&mut round.down_pool, player_addr, amount);
         };
 
-        event::emit(BetEvent { player: player_address, round_id, amount, direction });
+        event::emit(BetEvent { player: player_addr, round_id, amount, direction });
 
     }
 
     fun round_payout(
-        player: &signer, round_data: &mut RoundData, round_id: u64
+        player_addr: address, round_data: &mut RoundData, round_id: u64
     ): u64 {
         assert!(
             round_id < round_data.current_round, error::out_of_range(E_INVALID_ROUND_ID)
@@ -309,15 +309,14 @@ module aprediction::game {
         let round = smart_vector::borrow_mut(&mut round_data.rounds, round_id);
         assert!(round.finalized, error::invalid_state(E_ROUND_NOT_FINALIZED));
 
-        let player_address = signer::address_of(player);
-        let up_shares = pool_u64_unbound::shares(&round.up_pool, player_address);
-        let down_shares = pool_u64_unbound::shares(&round.down_pool, player_address);
+        let up_shares = pool_u64_unbound::shares(&round.up_pool, player_addr);
+        let down_shares = pool_u64_unbound::shares(&round.down_pool, player_addr);
 
         let up_out =
-            pool_u64_unbound::redeem_shares(&mut round.up_pool, player_address, up_shares);
+            pool_u64_unbound::redeem_shares(&mut round.up_pool, player_addr, up_shares);
         let down_out =
             pool_u64_unbound::redeem_shares(
-                &mut round.down_pool, player_address, down_shares
+                &mut round.down_pool, player_addr, down_shares
             );
 
         up_out + down_out
@@ -329,17 +328,18 @@ module aprediction::game {
 
         let amount_claim = 0;
         let n = vector::length(&round_ids);
+        let player_addr = signer::address_of(player);
 
         for (i in 0..n) {
             amount_claim = amount_claim
-                + round_payout(player, round_data, vector::pop_back(&mut round_ids));
+                + round_payout(player_addr, round_data, vector::pop_back(&mut round_ids));
         };
 
-        let player_address = signer::address_of(player);
+        let player_addr = signer::address_of(player);
         let claim_coin = coin::extract<AptosCoin>(&mut round_data.vault, amount_claim);
-        coin::deposit(player_address, claim_coin);
+        coin::deposit(player_addr, claim_coin);
 
-        event::emit(ClaimEvent { player: player_address, claimed_amount: amount_claim });
+        event::emit(ClaimEvent { player: player_addr, claimed_amount: amount_claim });
 
     }
 }
