@@ -8,6 +8,10 @@ import { IoIosArrowUp } from "react-icons/io";
 import { IoIosArrowDown } from "react-icons/io";
 import { PiEquals } from "react-icons/pi";
 import { useState } from "react";
+import { Aptos } from "@aptos-labs/ts-sdk";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
+
+const aptos = new Aptos();
 
 type BetState = "live" | "expired" | "next" | "later";
 interface HeaderProps {
@@ -115,22 +119,25 @@ const BetBlock: React.FC<BetBlockProps> = ({
 };
 
 const NextState: React.FC<{ pool: number }> = ({ pool }) => {
-  const [betState, setBetState] = useState<'initial' | 'up' | 'down'>('initial');
-  const [betAmount, setBetAmount] = useState<string>('');
+  const [betState, setBetState] = useState<"initial" | "up" | "down">(
+    "initial",
+  );
+  const [betAmount, setBetAmount] = useState<string>("");
+  const { account } = useWallet();
 
   const handleBetUp = () => {
-    setBetState('up');
+    setBetState("up");
   };
 
   const handleBetDown = () => {
-    setBetState('down');
+    setBetState("down");
   };
 
   const handleSubmit = () => {
     console.log(`Bet ${betState} submitted with amount: ${betAmount}`);
     // Add your logic here
-    setBetState('initial');
-    setBetAmount('');
+    setBetState("initial");
+    setBetAmount("");
   };
 
   return (
@@ -139,7 +146,7 @@ const NextState: React.FC<{ pool: number }> = ({ pool }) => {
         <h2 className="flex-1">Prize Pool:</h2>
         <h3>{pool}</h3>
       </div>
-      {betState === 'initial' ? (
+      {betState === "initial" ? (
         <div className="flex flex-row w-full">
           <button
             className="flex-1 bg-green-500 text-white px-4 py-2 rounded-lg mr-4 active:bg-green-600"
@@ -163,14 +170,29 @@ const NextState: React.FC<{ pool: number }> = ({ pool }) => {
             className="w-full px-4 py-2 mb-2 border rounded-lg"
             placeholder="Enter bet amount"
           />
-          <button
-            className={`w-full text-white px-4 py-2 rounded-lg ${
-              betState === 'up' ? 'bg-green-500 active:bg-green-600' : 'bg-red-500 active:bg-red-600'
-            }`}
-            onClick={handleSubmit}
-          >
-            Submit {betState === 'up' ? 'Up' : 'Down'} Bet
-          </button>
+          <div className="flex flex-row w-full">
+            <button
+              className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg mr-2 active:bg-gray-400"
+              onClick={() => setBetState("initial")}
+            >
+              Back
+            </button>
+            <button
+              className={clsx(
+                "flex-1 text-white px-4 py-2 rounded-lg",
+                betState === "up"
+                  ? "bg-green-500 active:bg-green-600"
+                  : "bg-red-500 active:bg-red-600",
+                !account && "bg-gray-400 cursor-not-allowed active:bg-gray-400",
+              )}
+              onClick={handleSubmit}
+              disabled={!account}
+            >
+              {account
+                ? `Submit ${betState === "up" ? "Up" : "Down"} Bet`
+                : "Sign in to place bet"}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -224,8 +246,8 @@ const PriceDisplay: React.FC<{ currentPrice: number; priceDelta: number }> = ({
         priceDelta > 0
           ? "bg-green-500"
           : priceDelta < 0
-          ? "bg-red-500"
-          : "bg-gray-500"
+            ? "bg-red-500"
+            : "bg-gray-500",
       )}
     >
       {priceDelta > 0 ? (
