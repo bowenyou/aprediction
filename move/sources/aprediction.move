@@ -16,7 +16,7 @@ module aprediction::game {
     const ADMIN: address = @default_admin;
     const FEE_ADDRESS: address = @fee_admin;
     const ORACLE_ADDRESS: address =
-        @0xb8f20223af69dcbc33d29e8555e46d031915fc38cb1a4fff5d5167a1e08e8367;
+        @0x7ac62190ba57b945975146f3d8725430ad3821391070b965b38206fe4cec9fd5;
 
     const ROUND_DURATION: u64 = 300;
     const ROUND_BUFFER: u64 = 30;
