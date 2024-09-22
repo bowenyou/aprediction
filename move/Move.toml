@@ -7,7 +7,8 @@ authors = []
 switchboard = "0xb91d3fef0eeb4e685dc85e739c7d3e2968784945be4424e92e2f86e2418bf271"
 aprediction = "0xccc20bab75e520c7cc06b8d38165f81ee68e4cade1cccd31ca956194794e450f"
 fee_admin = "0x27496b99cbbf02fc7f54aa63421460c1ca2bbcb69b1913cc64eb1611901ca8f3"
-default_admin = "0xf6830a593161dd4508ef9c6a6153c768c8b33c16ef6db54a2a6f296c9b6ccd4c"
+default_admin = "0x27496b99cbbf02fc7f54aa63421460c1ca2bbcb69b1913cc64eb1611901ca8f3"
+dev = "0x27496b99cbbf02fc7f54aa63421460c1ca2bbcb69b1913cc64eb1611901ca8f3"
 
 [dependencies]
 AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", subdir = "aptos-move/framework/aptos-framework/", rev = "main" }
