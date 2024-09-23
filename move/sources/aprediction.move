@@ -17,8 +17,7 @@ module aprediction::game {
     const ADMIN: address = @default_admin;
     const DEV: address = @dev;
     const FEE_ADDRESS: address = @fee_admin;
-    const ORACLE_ADDRESS: address =
-        @0x7ac62190ba57b945975146f3d8725430ad3821391070b965b38206fe4cec9fd5;
+    const ORACLE_ADDRESS: address = @oracle;
 
     const RESOURCE_SEED: vector<u8> = b"APREDICTION";
     const ROUND_DURATION: u64 = 300;
@@ -630,7 +629,7 @@ module aprediction::game {
 
     }
 
-    #[test(aptos_framework = @0x1, admin = @default_admin, alice = @0xA, bob = @0xB, oracle = @0x7ac62190ba57b945975146f3d8725430ad3821391070b965b38206fe4cec9fd5)]
+    #[test(aptos_framework = @0x1, admin = @default_admin, alice = @0xA, bob = @0xB, oracle = @oracle)]
     fun test_claim(
         aptos_framework: &signer,
         admin: &signer,
@@ -672,7 +671,9 @@ module aprediction::game {
 
         claim_rounds(alice, round_ids);
         claim_rounds(bob, round_ids);
-        assert!(coin::balance<AptosCoin>(signer::address_of(alice)) == 10000 + 25000 - 12, 0);
+        assert!(
+            coin::balance<AptosCoin>(signer::address_of(alice)) == 10000 + 25000 - 12, 0
+        );
         assert!(coin::balance<AptosCoin>(signer::address_of(bob)) == 5000, 0);
 
     }
